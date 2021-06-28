@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "libss"
+version = "0.1.0"
+description = "Independent-component-analysis-based Blind audio source separation library."
+authors = ["Taishi Nakashima <taishi@ieee.org>"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/taishi-n/bliss"
+repository = "https://github.com/taishi-n/bliss"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+numpy = "^1.20.3"
+matplotlib = "^3.4.2"
+museval = "^0.4.0"
+pytest = "^6.2.4"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0", "setuptools"]
+build-backend = "poetry.core.masonry.api"
