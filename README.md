@@ -1,6 +1,8 @@
 # libss
 Independent-component-analysis-based blind audio source separation library.
 
+[![PyPI version](https://badge.fury.io/py/libss.svg)](https://badge.fury.io/py/libss)
+
 ## Installation
 ```
 pip install libss
