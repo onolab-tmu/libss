@@ -63,17 +63,15 @@ def update_source_model(y_power, B, A, eps=NP_EPS):
     return B, A
 
 
-def _ip_1(x, R, W, row_idx):
+def _ip_1(cov, demix, row_idx):
     """
     Update one demixing vector with IP1 algorithm.
 
     Parameters
     ----------
-    x: ndarray (n_freq, n_src, n_frame)
-        Power spectrograms of demixed signals.
-    R: ndarray (n_src, n_freq, n_frame)
-        Variance matrices of source spectrograms.
-    W: ndarray (n_freq, n_src, n_src)
+    cov: ndarray (n_freq, n_src, n_src)
+        Weighted covariance matrices of the observed signal.
+    demix: ndarray (n_freq, n_src, n_src)
         Demixing filters.
     row_idx: int
         The index of row vector of W.
@@ -82,28 +80,25 @@ def _ip_1(x, R, W, row_idx):
     -------
     Updated W
     """
-    _, n_src, n_frame = x.shape
+    n_src = cov.shape[-1]
 
     # shape: (n_freq, n_src, n_src)
-    cov = (x / R[row_idx, :, None, :]) @ tensor_H(x) / n_frame
-    w = (np.linalg.solve(W @ cov, np.eye(n_src)[None, :, row_idx])).conj()
+    w = (np.linalg.solve(demix @ cov, np.eye(n_src)[None, :, row_idx])).conj()
     denom = (w[:, None, :] @ cov) @ w[:, :, None].conj()
-    W[:, row_idx, :] = w / np.sqrt(denom[:, :, 0])
+    demix[:, row_idx, :] = w / np.sqrt(denom[:, :, 0])
 
-    return W
+    return demix
 
 
-def _ip_2(x, R, W, row_idx, verbose=False):
+def _ip_2(cov, demix, row_idx, verbose=False):
     """
     Update two demixing vectors with IP-2 algorithm.
 
     Parameters
     ----------
-    x: ndarray (n_freq, n_src, n_frame)
-        Power spectrograms of demixed signals.
-    R: ndarray (n_src, n_freq, n_frame)
-        Variance matrices of source spectrograms.
-    W: ndarray (n_freq, n_src, n_src)
+    cov: ndarray (2, n_freq, n_src, n_src)
+        Weighted covariance matrices of the observed signal.
+    demix: ndarray (n_freq, n_src, n_src)
         Demixing filters.
     row_idx: ndarray (2,)
         The indeces of row vector of W.
@@ -112,20 +107,15 @@ def _ip_2(x, R, W, row_idx, verbose=False):
     -------
     Updated W
     """
-    _, n_src, n_frames = x.shape
-
-    # shape: (2, n_freq, n_src, n_src)
-    V = (
-        (x[None, :, :, :] / R[row_idx, :, None, :])
-        @ tensor_H(x[None, :, :, :])
-        / n_frames
-    )
+    n_src = cov.shape[-1]
 
     # shape: (2, n_freq, n_src, 2)
-    P = np.linalg.solve(W[None, :, :, :] @ V, np.eye(n_src)[None, None, :, row_idx])
+    proj = np.linalg.solve(
+        demix[None, :, :, :] @ cov, np.eye(n_src)[None, None, :, row_idx]
+    )
 
     # shape: (2, n_freq, 2, 2)
-    U = tensor_H(P) @ V @ P
+    U = tensor_H(proj) @ cov @ proj
 
     # Eigen vectors of U[1] @ inv(U[0])
     # shape: (2, n_freq, 2)
@@ -133,88 +123,91 @@ def _ip_2(x, R, W, row_idx, verbose=False):
     if verbose:
         print(residual_2x2head(u[0], u[1], U[0], U[1]))
 
-    W[:, row_idx, :, None] = (P @ u[:, :, :, None]).swapaxes(0, 1).conj()
+    demix[:, row_idx, :, None] = (proj @ u[:, :, :, None]).swapaxes(0, 1).conj()
 
-    return W
+    return demix
 
 
-def _iss_1(x, R, W, row_idx, flooring=True, eps=NP_EPS):
+def _iss_1(cov, demix, row_idx, flooring=True, eps=NP_EPS):
     """
     Update all demixing vectors with ISS algorithm.
 
     Parameters
     ----------
-    x: ndarray (n_freq, n_src, n_frame)
-        Power spectrograms of demixed signals.
-    R: ndarray (n_src, n_freq, n_frame)
-        Variance matrices of source spectrograms.
-    W: ndarray (n_freq, n_src, n_src)
+    cov: ndarray (n_freq, n_src, n_src)
+        Weighted covariance matrices of the observed signal.
+    demix: ndarray (n_freq, n_src, n_src)
         Demixing filters.
     row_idx: int
         The index of row vector of W.
     flooring: bool, optional
         If True, flooring is processed.
         Default is True.
+    eps : float, option (default `np.finfo(np.float64).eps`)
 
     Returns
     -------
     Updated W
     """
-    y = W @ x
-    n_freq, n_src, n_frame = y.shape
-
-    # (n_freq, n_src, n_frame)
-    iR = np.reciprocal(R.transpose([1, 0, 2]))
-
-    # update coefficients of W
-    v_denom = np.zeros((n_freq, n_src), dtype=x.dtype)
-    v = np.zeros((n_freq, n_src), dtype=x.dtype)
-
-    # separation
-    v[:, :, None] = (y * iR) @ y[:, row_idx, :, None].conj()
-    v_denom[:, :, None] = iR @ np.square(np.abs(y[:, row_idx, :, None]))
-
-    # flooring is processed to improve numerical stability
-    if flooring:
-        v_denom[v_denom < eps] = eps
-    v[:, :] /= v_denom
-    v[:, row_idx] -= 1 / np.sqrt(v_denom[:, row_idx] / n_frame)
-
-    # update demixing matrices and demixed signals
-    W[:, :, :] -= v[:, :, None] * W[:, row_idx, None, :]
-    y[:, :, :] -= v[:, :, None] * y[:, row_idx, None, :]
-
-    return W
+    raise NotImplementedError
 
 
-def update_spatial_model(x, R, W, row_idx, method="IP1"):
+def update_covariance(observed, source_model, prev_cov=None, alpha=None):
+    """
+    Update weighted covariance matrices with given observed signal and source model.
+
+    Parameters
+    ----------
+    observed : ndarray (n_frame, n_freq, n_src)
+    source_model : ndarray (n_frame, n_freq, n_src)
+
+    Returns
+    -------
+    cov : ndarray (n_src, n_freq, n_src, n_src)
+    """
+    n_frame, n_freq, n_src = observed.shape
+    observed_t = observed.transpose([1, 2, 0])
+
+    # (n_src, n_freq, n_frame)
+    model_t = source_model.transpose([2, 1, 0])
+
+    cov = np.zeros((n_src, n_freq, n_src, n_src), dtype=complex)
+
+    # shape: (n_src, n_freq, n_src, n_src)
+    for s in range(n_src):
+        cov[s] = (observed_t / model_t[s, :, None, :]) @ tensor_H(observed_t)
+    cov /= n_frame
+
+    # block batch or online
+    if prev_cov is not None and alpha is not None:
+        cov *= 1 - alpha
+        cov += alpha * prev_cov
+
+    return cov
+
+
+def update_spatial_model(cov, demix, row_idx, method="IP1"):
     """
     Update demixing matrix W.
 
     Parameters
     ----------
-    x: ndarray (n_frame, n_freq, n_src)
-        Input mixture signal.
-    R: ndarray (n_frame, n_freq, n_src)
+    cov : ndarray (n_src, n_freq, n_src, n_src)
         Variance matrices of source spectrograms.
-    W: ndarray (n_freq, n_src)
+    demix : ndarray (n_freq, n_src, n_src)
         Demixing matrices.
-    row_idx: int or ndarray (2,)
+    row_idx : int or ndarray (2,)
         The index of row vector of W.
-    method: string
+    method : string
 
     Returns
     -------
     Updated W
     """
-    allowed_methods = {
+    update = {
         "IP1": _ip_1,
         "IP2": _ip_2,
         "ISS1": _iss_1,
-    }
+    }[method]
 
-    # Transpose matrices to calculate efficiently
-    xt = x.transpose([1, 2, 0])  # (n_freq, n_src, n_frame)
-    Rt = R.transpose([2, 1, 0])  # (n_src, n_freq, n_frame)
-
-    return allowed_methods[method](xt, Rt, W.copy(), row_idx)
+    return update(cov[row_idx, :, :, :], demix.copy(), row_idx)

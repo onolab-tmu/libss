@@ -315,35 +315,6 @@ def solve_2x2HEAD(V1, V2, method="ono", eig_reverse=False):
     return eigval, eigvec
 
 
-def make_cov(observed, source_model):
-    """
-    Make weighted covariance matrices with given observed signal and source model.
-
-    Parameters
-    ----------
-    observed: ndarray (n_frame, n_freq, n_src)
-    source_model: ndarray (n_frame, n_freq, n_src)
-
-    Returns
-    -------
-    cov: ndarray (n_src, n_freq, n_src, n_src)
-    """
-    n_frame, n_freq, n_src = observed.shape
-    observed_t = observed.transpose([1, 2, 0])
-
-    # (n_src, n_freq, n_frame)
-    model_t = source_model.transpose([2, 1, 0])
-
-    cov = np.zeros((n_src, n_freq, n_src, n_src), dtype=complex)
-
-    # shape: (n_src, n_freq, n_src, n_src)
-    for s in range(n_src):
-        cov[s] = (observed_t / model_t[s, :, None, :]) @ np.conj(tensor_T(observed_t))
-    cov /= n_frame
-
-    return cov
-
-
 def demix(observations, demix_filter):
     """
     Perform the demixing filter into observations.

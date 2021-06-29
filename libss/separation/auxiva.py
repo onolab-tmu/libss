@@ -1,7 +1,7 @@
 """Auxiliary-function-based independent vector analysis."""
 import numpy as np
 
-from .update_rules import update_spatial_model
+from .update_rules import update_spatial_model, update_covariance
 from .utils import demix, tensor_H
 
 eps = np.finfo(np.float64).eps
@@ -41,6 +41,7 @@ class AuxIVA(object):
         self.demix_filter = self.init_demix()
         self.estimated = demix(self.observations, self.demix_filter)
         self.source_model = None
+        self.covariance = None
         self.loss = self.calc_loss()
 
     def step(self):
@@ -49,12 +50,14 @@ class AuxIVA(object):
         # 1. Update source model
         self.source_model = self.calc_source_model()
 
+        # 2. Update covariance
+        self.covariance = update_covariance(self.observations, self.source_model)
+
         # 2. Update demixing filter
         if self.update_demix_filter in ["IP1", "ISS1"]:
             for s in range(n_src):
                 self.demix_filter[:, :, :] = update_spatial_model(
-                    self.observations,
-                    self.source_model,
+                    self.covariance,
                     self.demix_filter,
                     row_idx=s,
                     method=self.update_demix_filter,
@@ -64,8 +67,7 @@ class AuxIVA(object):
                 m, n = s % n_src, (s + 1) % n_src
                 tgt_idx = np.array([m, n])
                 self.demix_filter[:, :, :] = update_spatial_model(
-                    self.observations,
-                    self.source_model,
+                    self.covariance,
                     self.demix_filter,
                     row_idx=tgt_idx,
                     method=self.update_demix_filter,
