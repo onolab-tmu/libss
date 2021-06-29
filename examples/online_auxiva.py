@@ -40,11 +40,11 @@ def pcm2float(sig, dtype="float32"):
 
 
 # Read wav file
-ref_mic = 1
-# n_src = 3
-# datadir = os.path.join(".", "examples", "data")
+ref_mic = 0
 n_src = 2
 datadir = os.path.join(".", "examples", "input", "dynamic")
+# n_src = 3
+# datadir = os.path.join(".", "examples", "input", "static")
 fs = -1
 wav_fmt = "src%d_mic%d.wav"
 
@@ -58,7 +58,9 @@ for i in range(n_src):
             raise ValueError("Sampling frequency is not valid.")
 
 premix = np.array(premix)
-premix = pcm2float(premix)
+if np.array(premix).dtype == np.int16:
+    premix = pcm2float(premix)
+premix /= np.max(abs(premix))
 mix = premix.sum(axis=0)
 ref = premix[:, ref_mic, :]
 
@@ -76,38 +78,74 @@ engine = pra.transform.STFT(
 
 mix_tf = engine.analysis(mix.T)
 
-separator = libss.separation.AuxIVA(
+# # whitening
+# mix_tf -= mix_tf.mean(axis=-1)[:, :, None]
+# mix_tf /= mix_tf.std(axis=-1)[:, :, None]
+
+# separator = libss.separation.OnlineAuxIVA(
+#     mix_tf,
+#     update_demix_filter="IP1",
+#     update_source_model="Gauss",
+#     block_size=1,
+#     forget_param=0.96,
+#     n_iter=2,
+# )
+
+# si_sdr, si_sir, si_sar = [], [], []
+# callback_eval(ref, mix, si_sdr, si_sir, si_sar)
+
+# print(si_sdr[-1])
+# separator.step()
+
+# # Evaluation
+# z = projection_back(
+#     separator.estimated,
+#     mix_tf,
+#     ref_mic=ref_mic,
+#     # W=separator.demix_filter[1],
+# )
+# # Inverse STFT
+# est = pra.transform.synthesis(z, n_fft, hop, win=win_s)[n_fft - hop :, :].T
+# m = np.minimum(ref.shape[1], est.shape[1])
+
+# # Evaluate BSS performance
+# y = callback_eval(ref[:, :m], est[:, :m], si_sdr, si_sir, si_sar)
+# print(si_sdr[-1])
+
+# for s in range(n_src):
+#     wavfile.write(f"./examples/output/est_online_{s}.wav", fs, y[s])
+#     wavfile.write(f"./examples/output/mix_online_{s}.wav", fs, mix[s])
+
+
+demix, sep = libss.separation.auxiva_online(
     mix_tf,
     update_demix_filter="IP1",
     update_source_model="Gauss",
-    ref_mic=0,
+    block_size=1,
+    forget_param=0.96,
+    n_iter=2,
 )
 
-n_iter = 50
 si_sdr, si_sir, si_sar = [], [], []
 callback_eval(ref, mix, si_sdr, si_sir, si_sar)
 
-y = []
 print(si_sdr[-1])
-for it in range(n_iter):
-    # print(separator.loss)
-    separator.step()
 
-    # Evaluation
-    if it % 10 == 0:
-        z = projection_back(
-            separator.estimated,
-            mix_tf,
-            ref_mic=ref_mic,
-            W=separator.demix_filter,
-        )
-        # Inverse STFT
-        est = pra.transform.synthesis(z, n_fft, hop, win=win_s)[n_fft - hop :, :].T
-        m = np.minimum(ref.shape[1], est.shape[1])
+# Evaluation
+z = projection_back(
+    sep,
+    mix_tf,
+    ref_mic=ref_mic,
+    # W=separator.demix_filter[1],
+)
+# Inverse STFT
+est = pra.transform.synthesis(z, n_fft, hop, win=win_s)[n_fft - hop :, :].T
+m = np.minimum(ref.shape[1], est.shape[1])
 
-        # Evaluate BSS performance
-        y = callback_eval(ref[:, :m], est[:, :m], si_sdr, si_sir, si_sar)
-        print(si_sdr[-1])
+# Evaluate BSS performance
+y = callback_eval(ref[:, :m], est[:, :m], si_sdr, si_sir, si_sar)
+print(si_sdr[-1])
 
 for s in range(n_src):
-    wavfile.write(f"./examples/output/est_{s}.wav", fs, y[s])
+    wavfile.write(f"./examples/output/est_online_{s}.wav", fs, y[s])
+    wavfile.write(f"./examples/output/mix_online_{s}.wav", fs, mix[s])
