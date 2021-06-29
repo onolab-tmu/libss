@@ -16,7 +16,6 @@ class AuxIVA(object):
     observations : ndarray of shape (n_frame, n_freq, n_src)
     update_demix_filter : str
     update_source_model : str, {"Gauss", "Laplace"}
-    update_covariance : str
 
     estimated : ndarray of shape (n_frame, n_freq, n_src)
     source_model : ndarray of shape (n_frame, n_freq, n_src)
@@ -29,7 +28,6 @@ class AuxIVA(object):
         observations,
         update_demix_filter="IP1",
         update_source_model="Laplace",
-        update_covariance="batch",
         **kwargs,
     ):
         """Initialize parameters in AuxIVA."""
@@ -37,7 +35,6 @@ class AuxIVA(object):
         self.observations = observations
         self.update_demix_filter = update_demix_filter
         self.update_source_model = update_source_model
-        self.update_covariance = update_covariance
         self.kwargs = kwargs
 
         # Results

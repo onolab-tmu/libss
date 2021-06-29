@@ -47,7 +47,6 @@ separator = libss.separation.AuxIVA(
     mix_tf,
     update_demix_filter="IP1",
     update_source_model="Gauss",
-    update_covariance="batch",
     ref_mic=0,
 )
 
