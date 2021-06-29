@@ -7,6 +7,26 @@ from .utils import demix
 eps = np.finfo(np.float64).eps
 
 
+def projection_back_frame(W, ref_mic=0):
+    """
+    Perform projection-back technique for online AuxIVA algorithm.
+
+    Parameters
+    ----------
+    W : ndarray (n_frame, n_freq, n_src, n_src)
+    ref_mic : int, default=0
+        Index of reference microphone
+    """
+    n_freq, _, _ = W.shape
+    W_proj = W.copy()
+
+    A = np.linalg.inv(W)
+    for f in range(n_freq):
+        eA = np.diagflat(A[f, ref_mic, :])
+        W_proj[f, :, :] = eA @ W[f, :, :]
+    return W_proj
+
+
 def auxiva_online(
     mix,
     update_demix_filter="IP1",
@@ -14,51 +34,63 @@ def auxiva_online(
     block_size=1,
     forget_param=0.97,
     n_iter=2,
+    ref_mic=0,
 ):
-    """Separate with online AuxIVA."""
+    """
+    Separate with online AuxIVA.
+
+    Parameters
+    ----------
+    mix : ndarray (n_frame, n_freq, n_src)
+    update_demix_filter : str, {'IP1'}
+        Update method of demixing matrices.
+        Note: only 'IP1' is available currently.
+    update_source_model : str, {'Laplace', 'Gauss'}
+    block_size : int, default=1
+    forget_param : float, default=0.97
+    n_iter : int, optional default=2
+    ref_mic : int, default=0
+
+    Returns
+    -------
+    The demixing matrices and separated sources.
+    """
     # initialize
     n_frame, n_freq, n_src = mix.shape
-    W = np.zeros((n_frame, n_freq, n_src, n_src), dtype=complex)
-    W[:, :, :, :] = np.tile(np.eye(n_src), (n_frame, n_freq, 1, 1))
+    eye = np.eye(n_src, dtype=complex)
+    W = np.tile(eye, (n_frame, n_freq, 1, 1))
+    cov = np.tile(1e-5 * eye, (n_frame, n_src, n_freq, 1, 1))
 
-    estimated = demix(mix, W[0])
-    r = np.zeros((n_frame, n_src), dtype=complex)
-    cov = np.zeros((n_frame, n_src, n_freq, n_src, n_src), dtype=complex)
+    cont = {
+        "Gauss": lambda y: np.linalg.norm(y, axis=0) / n_freq,
+        "Laplace": lambda y: 2.0 * np.linalg.norm(y, axis=0),
+    }[update_source_model]
 
-    np.random.seed(2)
-    cov += 1e-9 * np.random.rand(*cov.shape)
-
+    # Iteration
     for t in range(0, n_frame):
-        if t != 0:
-            W[t] = W[t - 1].copy()
+        W[t] = W[t - 1].copy()
 
         for _ in range(n_iter):
             for s in range(n_src):
-                r[t, s, None, None] = np.linalg.norm(
-                    W[t, :, s, None, :] @ mix[t, :, :, None], axis=0
-                )
+                # Update source model
+                est = W[t, :, s, None, :] @ mix[t, :, :, None]
+                r = cont(est)
 
-                cov[t, s, :, :, :] = (
-                    mix[t, :, :, None] @ mix[t, :, None, :].conj()
-                ) / r[t, s]
-                cov[t, s, :, :, :] = (
-                    forget_param * cov[t - 1, s, :, :, :]
-                    + (1 - forget_param) * cov[t, s, :, :]
-                )
-                cov[t, s, :, :, :] = np.maximum(cov[t, s, :, :, :], np.finfo(float).eps)
+                # Update weighted covariance
+                cov_new = mix[t, :, :, None] @ mix[t, :, None, :].conj() / r
+                cov[t, s] = forget_param * cov[t - 1, s] + (1 - forget_param) * cov_new
 
-                w_ast = np.linalg.solve(
-                    W[t, :, :, :] @ cov[t, s, :, :, :],
-                    np.eye(n_src)[None, :, s],
-                )
-                W[t, :, s, :] = w_ast.conj()
-                denom = np.sqrt(
-                    w_ast[:, None, :] @ cov[t, s, :, :, :] @ w_ast[:, :, None].conj()
-                ).squeeze()
-                W[t, :, s, :] /= denom[:, None]
+                # Update demixing vector
+                w_ = np.linalg.solve(W[t] @ cov[t, s], eye[None, :, s])
+                denom = np.sqrt(w_[:, None, :] @ cov[t, s] @ w_[:, :, None].conj())
+                W[t, :, s, :] = w_.conj() / denom[:, 0, 0, None]
 
+        W[t] = projection_back_frame(W[t])
+
+    # Calculate output signal
+    estimated = np.zeros(mix.shape, dtype=complex)
     for t in range(n_frame):
-        estimated[t, :, :] = demix(mix[t, None, :, :], W[t])
+        estimated[t] = demix(mix[t, None, :, :], W[t])
 
     return W, estimated
 
@@ -107,77 +139,60 @@ class OnlineAuxIVA(object):
 
         # Results
         n_frame, n_freq, n_src = observed.shape
-        self.demix_filter = self.init_demix()
-        self.estimated = demix(self.observed, self.demix_filter[0, :, :, :])
-        self.covariance = np.zeros(
-            (n_frame - block_size + 1, n_src, n_freq, n_src, n_src), dtype=complex
+        self.demix_filter = np.tile(
+            np.eye(n_src, dtype=complex), (n_frame, n_freq, 1, 1)
         )
-        self.source_model = None
+        self.estimated = demix(self.observed, self.demix_filter[0, :, :, :])
+        self.covariance = np.tile(
+            np.eye(n_src, dtype=complex), (n_frame, n_src, n_freq, 1, 1)
+        )
+        self.source_model = np.zeros(self.estimated.shape)
+        for t in range(self.block_size):
+            self.source_model[t, :, :] = self.calc_source_model(
+                self.estimated[t, None, :, :], self.update_source_model
+            )[:, None, :]
+
         self.loss = None
 
     def step(self):
         """Update paramters one step."""
         lb = self.block_size
         n_frame, _, n_src = self.observed.shape
-        for i, t in enumerate(range(lb, n_frame)):
+        for t in range(lb, n_frame):
+            self.demix_filter[t] = self.demix_filter[t - 1].copy()
             for _ in range(self.n_iter):
                 # 1. Update source model
-                self.source_model = self.calc_source_model(
-                    self.estimated[t - lb : t + 1, :, :], self.update_source_model
-                )
+                self.source_model[t, :, :] = self.calc_source_model(
+                    self.estimated[t, None, :, :], self.update_source_model
+                )[:, None, :]
 
                 for s in range(n_src):
                     # TODO: Accelerate with matrix inversion lemma
                     # 2. Update covariance matrices
-                    if t == lb:  # at the beginning of iteration
-                        self.covariance[i] = update_covariance(
-                            self.observed[t - lb : t + 1, :, :], self.source_model
-                        )
-                    else:
-                        self.covariance[i] = update_covariance(
-                            self.observed[t - lb : t + 1, :, :],
-                            self.source_model,
-                            prev_cov=self.covariance[i - lb],
-                            alpha=self.forget_param,
-                        )
+                    self.covariance[t] = update_covariance(
+                        self.observed[t - lb : t],
+                        self.source_model[t - lb : t],
+                        prev_cov=self.covariance[t - lb],
+                        alpha=self.forget_param,
+                    )
 
                     # TODO: Fix IP2
                     # 3. Update demixing filter
-                    self.demix_filter[i] = update_spatial_model(
-                        self.covariance[i],
-                        self.demix_filter[i],
+                    self.demix_filter[t] = update_spatial_model(
+                        self.covariance[t],
+                        self.demix_filter[t],
                         row_idx=s,
                         method=self.update_demix_filter,
                     )
 
                 # 4. Update estimated sources
-                self.estimated[t - lb : t + 1, :, :] = demix(
-                    self.observed[t - lb : t + 1, :, :],
-                    self.demix_filter[i],
+                self.estimated[t, None, :, :] = demix(
+                    self.observed[t, None, :, :],
+                    self.demix_filter[t],
                 )
 
-    def init_demix(self):
-        """Initialize demixing matrix."""
-        n_frame, n_freq, n_src = self.observed.shape
-        W0 = np.zeros((n_frame, n_freq, n_src, n_src), dtype=complex)
-        W0[:, :, :n_src] = np.tile(
-            np.eye(n_src, dtype=complex), (n_frame, n_freq, 1, 1)
-        )
-        return W0
-
     def calc_source_model(self, estimated, model):
-        """
-        Calculate source model.
-
-        Parameters
-        ----------
-        demix_filter : ndarray (n_freq, n_src, n_src)
-        estimated : ndarray (n_frame, n_freq, n_src)
-
-        Returns
-        -------
-        ndarray of shape (n_frame, n_freq, n_src)
-        """
+        """Calculate source model."""
         n_freq = estimated.shape[1]
         f_norm = {
             "Gauss": lambda y: (np.linalg.norm(y, axis=1) ** 2) / n_freq,
@@ -187,8 +202,4 @@ class OnlineAuxIVA(object):
         # (n_frame, n_src)
         y_norm = f_norm(estimated)
 
-        # (n_block, n_freq, n_src)
-        source_model = np.zeros(estimated.shape)
-        source_model[:, :, :] = np.maximum(eps, y_norm)[:, None, :]
-
-        return source_model
+        return y_norm
