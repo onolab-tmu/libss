@@ -31,7 +31,7 @@ def auxiva_online(
     mix,
     update_demix_filter="IP1",
     update_source_model="Laplace",
-    block_size=1,
+    n_blocks=1,
     forget_param=0.97,
     n_iter=2,
     ref_mic=0,
@@ -46,7 +46,7 @@ def auxiva_online(
         Update method of demixing matrices.
         Note: only 'IP1' is available currently.
     update_source_model : str, {'Laplace', 'Gauss'}
-    block_size : int, default=1
+    n_blocks : int, default=1
     forget_param : float, default=0.97
     n_iter : int, optional default=2
     ref_mic : int, default=0
@@ -55,44 +55,52 @@ def auxiva_online(
     -------
     The demixing matrices and separated sources.
     """
-    # initialize
+    # initialization
     n_frame, n_freq, n_src = mix.shape
     eye = np.eye(n_src, dtype=complex)
     W = np.tile(eye, (n_frame, n_freq, 1, 1))
-    cov = np.tile(1e-5 * eye, (n_frame, n_src, n_freq, 1, 1))
+    cov = np.tile(eye, (n_frame, n_src, n_freq, 1, 1)) * 1e-6
+    est = np.zeros(mix.shape, dtype=complex)
 
     cont = {
-        "Gauss": lambda y: np.linalg.norm(y, axis=0) / n_freq,
-        "Laplace": lambda y: 2.0 * np.linalg.norm(y, axis=0),
+        "Gauss": lambda y: (np.linalg.norm(y, axis=1) ** 2) / n_freq,
+        "Laplace": lambda y: 2.0 * np.linalg.norm(y, axis=1),
     }[update_source_model]
 
     # Iteration
-    for t in range(0, n_frame):
+    for t in range(n_blocks - 1, n_frame):
         W[t] = W[t - 1].copy()
+        t_block = np.arange(t - n_blocks + 1, t + 1)
 
         for _ in range(n_iter):
+            # Update source model
+            est[t_block, :, :, None] = W[t_block, :, :, :] @ mix[t_block, :, :, None]
+            r = cont(est[t_block])
             for s in range(n_src):
                 # Update source model
-                est = W[t, :, s, None, :] @ mix[t, :, :, None]
-                r = cont(est)
+                est[t_block, :, :, None] = (
+                    W[t_block, :, s, None, :] @ mix[t_block, :, :, None]
+                )
+                r = cont(est[t_block])
 
                 # Update weighted covariance
-                cov_new = mix[t, :, :, None] @ mix[t, :, None, :].conj() / r
-                cov[t, s] = forget_param * cov[t - 1, s] + (1 - forget_param) * cov_new
+                cov_new = (
+                    (mix[t_block, :, :, None] / r[:, None, :, None])
+                    @ mix[t_block, :, None, :].conj()
+                ).mean(axis=0)
+                cov[t, s] = (
+                    forget_param * cov[t - n_blocks, s] + (1 - forget_param) * cov_new
+                )
 
                 # Update demixing vector
-                w_ = np.linalg.solve(W[t] @ cov[t, s], eye[None, :, s])
-                denom = np.sqrt(w_[:, None, :] @ cov[t, s] @ w_[:, :, None].conj())
-                W[t, :, s, :] = w_.conj() / denom[:, 0, 0, None]
+                W[t] = update_spatial_model(
+                    cov[t], W[t], row_idx=s, method=update_demix_filter
+                )
 
-        W[t] = projection_back_frame(W[t])
+        W[t] = projection_back_frame(W[t], ref_mic)
+        est[t] = demix(mix[t, None, :, :], W[t])
 
-    # Calculate output signal
-    estimated = np.zeros(mix.shape, dtype=complex)
-    for t in range(n_frame):
-        estimated[t] = demix(mix[t, None, :, :], W[t])
-
-    return W, estimated
+    return W, est
 
 
 class OnlineAuxIVA(object):
@@ -104,7 +112,7 @@ class OnlineAuxIVA(object):
     observed : ndarray of shape (n_frame, n_freq, n_src)
     update_demix_filter : str
     update_source_model : str, {"Gauss", "Laplace"}
-    block_size : int, default 1
+    n_blocks : int, default 1
     forget_param : float, default 0.97
         Forgetting parameter for autoregressive calculation of covariance matrices.
         Real value over `0 < forget_param <= 1`
@@ -122,7 +130,7 @@ class OnlineAuxIVA(object):
         observed,
         update_demix_filter="IP1",
         update_source_model="Laplace",
-        block_size=1,
+        n_blocks=1,
         forget_param=0.97,
         n_iter=2,
         **kwargs,
@@ -132,7 +140,7 @@ class OnlineAuxIVA(object):
         self.observed = observed
         self.update_demix_filter = update_demix_filter
         self.update_source_model = update_source_model
-        self.block_size = block_size
+        self.n_blocks = n_blocks
         self.forget_param = forget_param
         self.n_iter = n_iter
         self.kwargs = kwargs
@@ -147,7 +155,7 @@ class OnlineAuxIVA(object):
             np.eye(n_src, dtype=complex), (n_frame, n_src, n_freq, 1, 1)
         )
         self.source_model = np.zeros(self.estimated.shape)
-        for t in range(self.block_size):
+        for t in range(self.n_blocks):
             self.source_model[t, :, :] = self.calc_source_model(
                 self.estimated[t, None, :, :], self.update_source_model
             )[:, None, :]
@@ -156,7 +164,7 @@ class OnlineAuxIVA(object):
 
     def step(self):
         """Update paramters one step."""
-        lb = self.block_size
+        lb = self.n_blocks
         n_frame, _, n_src = self.observed.shape
         for t in range(lb, n_frame):
             self.demix_filter[t] = self.demix_filter[t - 1].copy()

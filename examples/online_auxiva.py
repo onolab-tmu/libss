@@ -52,10 +52,10 @@ print("SI-SIR:", si_sir[-1])
 
 params = {
     "update_demix_filter": "IP1",
-    "update_source_model": "Gauss",
-    "block_size": 1,
-    "forget_param": 0.99999,
-    "n_iter": 10,
+    "update_source_model": "Laplace",
+    "n_blocks": 1,
+    "forget_param": 0.99,
+    "n_iter": 2,
     "ref_mic": ref_mic,
 }
 demix, sep = libss.separation.auxiva_online(mix_tf, **params)
