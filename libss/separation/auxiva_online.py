@@ -13,7 +13,7 @@ def projection_back_frame(W, ref_mic=0):
 
     Parameters
     ----------
-    W : ndarray (n_frame, n_freq, n_src, n_src)
+    W : ndarray (n_freq, n_src, n_src)
     ref_mic : int, default=0
         Index of reference microphone
     """
@@ -59,8 +59,9 @@ def auxiva_online(
     n_frame, n_freq, n_src = mix.shape
     eye = np.eye(n_src, dtype=complex)
     W = np.tile(eye, (n_frame, n_freq, 1, 1))
-    cov = np.tile(eye, (n_frame, n_src, n_freq, 1, 1)) * 1e-6
+    cov = np.tile(eye, (n_frame, n_src, n_freq, 1, 1)) * 1e-9
     est = np.zeros(mix.shape, dtype=complex)
+    est_out = np.zeros(mix.shape, dtype=complex)
 
     cont = {
         "Gauss": lambda y: (np.linalg.norm(y, axis=1) ** 2) / n_freq,
@@ -97,10 +98,10 @@ def auxiva_online(
                     cov[t], W[t], row_idx=s, method=update_demix_filter
                 )
 
-        W[t] = projection_back_frame(W[t], ref_mic)
-        est[t] = demix(mix[t, None, :, :], W[t])
+        W_pb = projection_back_frame(W[t], ref_mic)
+        est_out[t] = demix(mix[t, None, :, :], W_pb)
 
-    return W, est
+    return W, est_out
 
 
 class OnlineAuxIVA(object):
