@@ -9,56 +9,22 @@ import libss
 from libss.separation.utils import callback_eval, projection_back
 
 
-def pcm2float(sig, dtype="float32"):
-    """Convert PCM signal to floating point with a range from -1 to 1.
-    Use dtype='float32' for single precision.
-    Parameters
-    ----------
-    sig : array_like
-        Input array, must have integral type.
-    dtype : data type, optional
-        Desired (floating point) data type.
-    Returns
-    -------
-    numpy.ndarray
-        Normalized floating point data.
-    See Also
-    --------
-    float2pcm, dtype
-    """
-    sig = np.asarray(sig)
-    if sig.dtype.kind not in "iu":
-        raise TypeError("'sig' must be an array of integers")
-    dtype = np.dtype(dtype)
-    if dtype.kind != "f":
-        raise TypeError("'dtype' must be a floating point type")
-
-    i = np.iinfo(sig.dtype)
-    abs_max = 2 ** (i.bits - 1)
-    offset = i.min + abs_max
-    return (sig.astype(dtype) - offset) / abs_max
-
-
 # Read wav file
 ref_mic = 1
-# n_src = 3
-# datadir = os.path.join(".", "examples", "data")
-n_src = 2
-datadir = os.path.join(".", "examples", "input", "dynamic")
+n_src = 3
+datadir = os.path.join(".", "examples", "input", "static")
 fs = -1
-wav_fmt = "src%d_mic%d.wav"
 
 # (n_src, n_mic, n_samples)
 premix = [[] for _ in range(n_src)]
 for i in range(n_src):
     for j in range(n_src):
-        fs, audio = wavfile.read(os.path.join(datadir, wav_fmt % (i, j)))
+        fs, audio = wavfile.read(os.path.join(datadir, "src%d_mic%d.wav" % (i, j)))
         premix[i].append(audio)
         if fs < 0:
             raise ValueError("Sampling frequency is not valid.")
 
 premix = np.array(premix)
-premix = pcm2float(premix)
 mix = premix.sum(axis=0)
 ref = premix[:, ref_mic, :]
 
