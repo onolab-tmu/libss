@@ -14,8 +14,12 @@ class AuxIVA(object):
     Attributes
     ----------
     observations : ndarray of shape (n_frame, n_freq, n_src)
-    update_demix_filter : str
-    update_source_model : str, {"Gauss", "Laplace"}
+    update_demix_filter : str, default="IP1"
+        Update method of demixing filter.
+        Only "IP1" and "IP2" are available for now.
+    update_source_model : str, default="Gauss"
+        The source model, i.e. prior information of source signals.
+        Only "Gauss" and "Laplace" are available for now.
 
     estimated : ndarray of shape (n_frame, n_freq, n_src)
     source_model : ndarray of shape (n_frame, n_freq, n_src)
