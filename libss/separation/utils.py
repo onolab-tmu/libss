@@ -357,3 +357,30 @@ def callback_eval(ref, tar, SDR, SIR, SAR):
     SAR.append(si_sar.tolist())
 
     return tar[si_perm, :]
+
+
+def whiten(x):
+    """
+    Whiten input signal.
+
+    Parameters
+    ----------
+    x : ndarray of shape (n_frame, n_freq, n_src)
+        Input multi-channel spectrograms
+
+    Returns
+    -------
+    Whitened input.
+    """
+    x0 = x - x.mean(axis=1)[:, None, :]
+    # (n_freq, n_frame, n_src)
+    x_ = x0.transpose([1, 0, 2])
+
+    # (n_freq, n_src, n_src)
+    V = np.mean(x_[:, :, :, None] @ x_[:, :, None, :].conj(), axis=1)
+
+    val, mat = np.linalg.eigh(V)
+    D = np.array([np.diag(val[s]) for s in range(val.shape[0])])
+    y_ = np.linalg.inv(np.sqrt(D)) @ mat.swapaxes(-1, -2).conj() @ x_.swapaxes(-1, -2)
+
+    return y_.transpose([2, 0, 1])
