@@ -35,6 +35,7 @@ def auxiva_online(
     forget_param=0.97,
     n_iter=2,
     ref_mic=0,
+    cov_scale=1e-9,
 ):
     """
     Separate with online AuxIVA.
@@ -50,6 +51,8 @@ def auxiva_online(
     forget_param : float, default=0.97
     n_iter : int, optional default=2
     ref_mic : int, default=0
+    cov_scale : float, default=1e-9
+        Scaling factor of covariance matrix
 
     Returns
     -------
@@ -59,7 +62,7 @@ def auxiva_online(
     n_frame, n_freq, n_src = mix.shape
     eye = np.eye(n_src, dtype=complex)
     W = np.tile(eye, (n_frame, n_freq, 1, 1))
-    cov = np.tile(eye, (n_frame, n_src, n_freq, 1, 1)) * 1e-9
+    cov = np.tile(eye, (n_frame, n_src, n_freq, 1, 1)) * cov_scale
     est = np.zeros(mix.shape, dtype=complex)
     est_out = np.zeros(mix.shape, dtype=complex)
 
