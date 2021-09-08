@@ -69,7 +69,7 @@ def _ip_1(cov, demix, row_idx):
 
     Parameters
     ----------
-    cov: ndarray (n_freq, n_src, n_src)
+    cov: ndarray (n_src, n_freq, n_src, n_src)
         Weighted covariance matrices of the observed signal.
     demix: ndarray (n_freq, n_src, n_src)
         Demixing filters.
@@ -83,8 +83,8 @@ def _ip_1(cov, demix, row_idx):
     n_src = cov.shape[-1]
 
     # shape: (n_freq, n_src, n_src)
-    w = (np.linalg.solve(demix @ cov, np.eye(n_src)[None, :, row_idx])).conj()
-    denom = (w[:, None, :] @ cov) @ w[:, :, None].conj()
+    w = (np.linalg.solve(demix @ cov[row_idx], np.eye(n_src)[None, :, row_idx])).conj()
+    denom = (w[:, None, :] @ cov[row_idx]) @ w[:, :, None].conj()
     demix[:, row_idx, :] = w / np.sqrt(denom[:, :, 0])
 
     return demix
@@ -96,7 +96,7 @@ def _ip_2(cov, demix, row_idx, verbose=False):
 
     Parameters
     ----------
-    cov: ndarray (2, n_freq, n_src, n_src)
+    cov: ndarray (n_src, n_freq, n_src, n_src)
         Weighted covariance matrices of the observed signal.
     demix: ndarray (n_freq, n_src, n_src)
         Demixing filters.
@@ -111,11 +111,11 @@ def _ip_2(cov, demix, row_idx, verbose=False):
 
     # shape: (2, n_freq, n_src, 2)
     proj = np.linalg.solve(
-        demix[None, :, :, :] @ cov, np.eye(n_src)[None, None, :, row_idx]
+        demix[None, :, :, :] @ cov[row_idx], np.eye(n_src)[None, None, :, row_idx]
     )
 
     # shape: (2, n_freq, 2, 2)
-    U = tensor_H(proj) @ cov @ proj
+    U = tensor_H(proj) @ cov[row_idx] @ proj
 
     # Eigen vectors of U[1] @ inv(U[0])
     # shape: (2, n_freq, 2)
@@ -210,4 +210,4 @@ def update_spatial_model(cov, demix, row_idx, method="IP1"):
         "ISS1": _iss_1,
     }[method]
 
-    return update(cov[row_idx, :, :, :], demix.copy(), row_idx)
+    return update(cov, demix.copy(), row_idx)
