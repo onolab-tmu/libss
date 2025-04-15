@@ -1,7 +1,10 @@
-"""Auxiliary-function-based independent vector analysis."""
+"""
+Online auxiliary-function-based independent vector analysis.
+"""
+
 import numpy as np
 
-from .update_rules import update_spatial_model, update_covariance
+from .update_rules import update_covariance, update_spatial_model
 from .utils import demix
 
 eps = np.finfo(np.float64).eps
@@ -57,6 +60,22 @@ def auxiva_online(
     Returns
     -------
     The demixing matrices and separated sources.
+
+    Note
+    -----
+    This implementation is licensed under the CC BY-NC 4.0 license.
+    Commercial use is strictly prohibited without prior written permission.
+
+    If you use this code in your research, please cite the following paper:
+
+    @InProceedings{Taniguchi:2014:HSCMA,
+      author =       "Toru Taniguchi and Nobutaka Ono and Akinori Kawamura and Shigeki Sagayama",
+      title =        "An auxiliary-function approach to online independent vector analysis for real-time blind source separation",
+      pages =        "107--111",
+      booktitle =    "Proc. Hands-Free Speech Communication and Microphone Arrays (HSCMA)",
+      year =         "2014",
+      month =        may,
+    }
     """
     # initialization
     n_frame, n_freq, n_src = mix.shape
